@@ -1,0 +1,27 @@
+﻿@page "/"
+@using MudBlazor
+@using System.Text.RegularExpressions
+
+<MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Style="height:80vh;">
+    <MudPaper Elevation="3" Class="pa-5" Style="width:350px;border-radius:24px;">
+        <MudStack Spacing="0">
+           <MudStack AlignItems="AlignItems.Center">
+               <MudText Typo="Typo.h5" Class="mb-2">FireTalk</MudText>
+           </MudStack>
+           @if(!_showSignUp)
+            {
+                <MudForm @ref="signInForm">
+                    <MudStack Spacing="0"AlignItems="AlignItems.Start">
+                        <MudText Typo="Typo.body2" Class="mb-4">Login to your account</MudText>
+                        <MudTextField Label="Email" Required="true" @bind-Value="_email" Validation="@(new EmailAddressAttribute(){ErrorMessage="The email address is invalid"})"
+                        RequiredError="this email address required" Variant="Variant.Outlined"FullWidth="true"> 
+                            </MudTextField>
+                    </MudStack> 
+
+                </MudForm>
+                
+            }
+        </MudStack>
+    </MudPaper>
+
+</MudStack>
