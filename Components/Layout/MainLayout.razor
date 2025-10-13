@@ -1,9 +1,114 @@
-﻿@using MudBlazor
+﻿@using FireTalk.Models
+@using MudBlazor
+@using Newtonsoft.Json
 @inherits LayoutComponentBase
+@inject IDialogService DialogService
+@inject NavigationManager NavigationManager
+@using FireTalk.Components.Dialog
 
+<MudThemeProvider />
+<MudDialogProvider />
+   <MudPopoverProvider />
 <MudLayout>
-    <MudMainContent>
-        @body
-    </MudMainContent>
+    @if (_isUserLoggedIn)
+    {
+        <MudDrawer @bind-Open="_drawerOpen">
+            <MudNavMenu Class="m-1 px-2 py-3">
+                @* <MudPaper  Style="height:95vh"> *@
+                    <!-- User Info -->
+                   <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.Center" Spacing="1">
 
+                        <MudAvatar Size="Size.Medium">@GetUserInitials()</MudAvatar>
+                        <MudStack>
+                            <MudText Typo="Typo.h5">@(_userInfo?.Name ?? "")</MudText>
+                            <MudText Typo="Typo.body2">@(_userInfo?.Email ?? "")</MudText>
+                        </MudStack>
+                    </MudStack>
+
+                    <MudDivider Class="my-2" />
+
+                    <!-- Navigation Links -->
+                    <MudNavLink Href="/Home" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
+                    <MudNavLink Href="/Profile" Icon="@Icons.Material.Filled.People">Profile</MudNavLink>
+                    <MudNavLink OnClick="Logout" Icon="@Icons.Material.Filled.Logout">Sign Out</MudNavLink>
+                @* </MudPaper> *@
+            </MudNavMenu>
+        </MudDrawer>
+
+        <!-- App Bar -->
+        <MudAppBar>
+            <MudIconButton Icon="@Icons.Material.Filled.Menu"
+                           Color="Color.Inherit"
+                           Edge="Edge.Start"
+                           OnClick="DrawerToggle" />
+            FireTalk
+            <MudSpacer />
+            <MudAvatar Size="Size.Small">@GetUserInitials()</MudAvatar>
+        </MudAppBar>
+    }
+
+    <MudMainContent>
+       <MudContainer Style="padding:10px">
+            @Body
+       </MudContainer>
+    </MudMainContent>
 </MudLayout>
+
+@code {
+    public static UserModel _userInfo;
+    private bool _isUserLoggedIn => _userInfo != null;
+    private bool _drawerOpen = true;
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        // Load user info from Preferences
+        var userInfo = Preferences.Get("userInfo", string.Empty);
+        if (!string.IsNullOrEmpty(userInfo))
+        {
+            _userInfo = JsonConvert.DeserializeObject<UserModel>(userInfo);
+        }
+    }
+
+    private string GetUserInitials()
+    {
+        if (!string.IsNullOrEmpty(_userInfo?.Name))
+        {
+            var names = _userInfo.Name.Split(' ');
+            if (names.Length >= 2)
+                return $"{names[0][0]}{names[1][0]}".ToUpper();
+            else if (names.Length == 1)
+                return $"{names[0][0]}".ToUpper();
+        }
+        return string.Empty;
+    }
+
+    private void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    private async Task Logout()
+{
+    var parameters = new DialogParameters
+    {
+        ["Title"] = "Confirm Logout",
+        ["Description"] = "Are you sure you want to logout?",
+        ["OkayButtonText"] = "Yes",
+        ["CancelButtonText"] = "Cancel"
+    };
+
+    var dialog = DialogService.Show<Dialog>("Confirm Logout", parameters);
+    var result = await dialog.Result;
+
+    if (!result.Canceled)
+    {
+        Preferences.Clear();
+        _userInfo = null;
+        _drawerOpen = false;
+        NavigationManager.NavigateTo("/LoginPage", forceLoad: true);
+    }
+}
+
+}
