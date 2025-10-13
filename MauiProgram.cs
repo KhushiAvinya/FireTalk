@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using FireTalk.Models;
+using FireTalk.Services;
+using Microsoft.Extensions.Logging;
 using MudBlazor.Services;
 
 namespace FireTalk
@@ -17,9 +19,13 @@ namespace FireTalk
 
             builder.Services.AddMauiBlazorWebView();
             builder.Services.AddMudServices();
+            builder.Services.AddSingleton<FireStoreService>();
+            builder.Services.AddSingleton<IFireTalkService,FireTalkService>();
+            builder.Services.AddSingleton<AppState>();
+            //builder.Services.AddSingleton(new HttpClient());
 
 #if DEBUG
-    		builder.Services.AddBlazorWebViewDeveloperTools();
+            builder.Services.AddBlazorWebViewDeveloperTools();
     		builder.Logging.AddDebug();
 #endif
 

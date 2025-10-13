@@ -1,0 +1,26 @@
+﻿@page "/"
+@using FireTalk.Models
+@using Newtonsoft.Json
+@inject NavigationManager NavManager
+
+@code {
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        var userInfo = Preferences.Get("userInfo", string.Empty);
+
+        if (!string.IsNullOrEmpty(userInfo))
+        {
+            var userModel = JsonConvert.DeserializeObject<UserModel>(userInfo);
+            if (userModel != null)
+            {
+                NavManager.NavigateTo("/Home");
+            }
+        }
+        else
+        {
+            NavManager.NavigateTo("/LoginPage");
+        }
+    }
+}

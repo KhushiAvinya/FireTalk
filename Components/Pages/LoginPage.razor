@@ -1,27 +1,248 @@
-﻿@page "/"
+﻿@page "/LoginPage"
+@using FireTalk.Models
+@using FireTalk.Services
 @using MudBlazor
+@using System.ComponentModel.DataAnnotations
 @using System.Text.RegularExpressions
+@inject NavigationManager Navigation
+@using Microsoft.AspNetCore.Components.Web
+@using Newtonsoft.Json
+@inject IFireTalkService FireTalkService
+@inject IDialogService DialogService
 
 <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Style="height:80vh;">
     <MudPaper Elevation="3" Class="pa-5" Style="width:350px;border-radius:24px;">
         <MudStack Spacing="0">
-           <MudStack AlignItems="AlignItems.Center">
-               <MudText Typo="Typo.h5" Class="mb-2">FireTalk</MudText>
-           </MudStack>
-           @if(!_showSignUp)
+            <MudStack AlignItems="AlignItems.Center">
+                <MudText Typo="Typo.h5" Class="mb-2">FireTalk</MudText>
+            </MudStack>
+
+            @if (!_showSignUp)
             {
                 <MudForm @ref="signInForm">
-                    <MudStack Spacing="0"AlignItems="AlignItems.Start">
+                    <MudStack Spacing="0" AlignItems="AlignItems.Start">
                         <MudText Typo="Typo.body2" Class="mb-4">Login to your account</MudText>
-                        <MudTextField Label="Email" Required="true" @bind-Value="_email" Validation="@(new EmailAddressAttribute(){ErrorMessage="The email address is invalid"})"
-                        RequiredError="this email address required" Variant="Variant.Outlined"FullWidth="true"> 
-                            </MudTextField>
-                    </MudStack> 
 
+                        <MudTextField Label="Email" Required="true" @bind-Value="_email"
+                                      Validation="@(new EmailAddressAttribute(){ ErrorMessage="The email address is invalid" })"
+                                      RequiredError="This email address is required"
+                                      Variant="Variant.Outlined" FullWidth="true" />
+
+                        <MudTextField Label="Password"
+                                      Validation="@(new Func<string,IEnumerable<string>>(PasswordStrength))"
+                                      InputType="InputType.Password"
+                                      Required="true"
+                                      @bind-Value="_password"
+                                      RequiredError="Password is required"
+                                      Variant="Variant.Outlined" FullWidth="true" />
+
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@OnSignInClicked" Class="mt-4 mb-2" FullWidth="true">
+                            <MudStack Direction="Row" AlignItems="AlignItems.Center" Justify="Justify.Center" Spacing="1">
+                                @if (isloading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Color="Color.Inherit" />
+                                    <MudText>Signing in...</MudText>
+                                }
+                                else
+                                {
+                                    <MudText>Sign In</MudText>
+                                }
+                            </MudStack>
+                        </MudButton>
+
+                        <MudText Class="mt-2" Typo="Typo.caption">
+                            Don't have an account?
+                            <MudLink OnClick="@ShowSignUp">Sign Up</MudLink>
+                        </MudText>
+
+
+                       
+                    </MudStack>
                 </MudForm>
-                
+            }
+            else
+            {
+                <MudForm @ref="CreateAccountForm">
+                    <MudStack Spacing="0" AlignItems="AlignItems.Start">
+                        <MudText Typo="Typo.body2" Class="mb-4">Create a new account</MudText>
+                        <MudTextField Label="Name" 
+              Required="true" 
+              @bind-Value="_signUpName"
+              Validation="@(new Func<string,IEnumerable<string>>(NameValidation))"
+              RequiredError="Name is required"
+              Variant="Variant.Outlined" 
+              FullWidth="true" />
+
+                        <MudTextField Label="Email" Required="true" @bind-Value="_signUpEmail"
+                                      Validation="@(new EmailAddressAttribute(){ ErrorMessage="The email address is invalid" })"
+                                      RequiredError="This email address is required"
+                                      Variant="Variant.Outlined" FullWidth="true" />
+
+                        <MudTextField Label="Password" InputType="InputType.Password" Required="true"
+                                      @bind-Value="_signUpPassword" @ref="pwField1"
+                                      RequiredError="Password is required"
+                                      Variant="Variant.Outlined" FullWidth="true"
+                                      Validation="@(new Func<string,IEnumerable<string>>(PasswordStrength))" />
+
+                        <MudTextField Label="Confirm Password" InputType="InputType.Password" Required="true"
+                                      @bind-Value="_signUpConfirmPassword"
+                                      RequiredError="Confirm your password"
+                                      Variant="Variant.Outlined" FullWidth="true" Class="mt-2"
+                                      Validation="@(new Func<string,string>(PasswordMatch))" />
+
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4 mb-2" FullWidth="true" OnClick="@OnSignUpClicked">
+                            <MudStack Direction="Row" AlignItems="AlignItems.Center" Justify="Justify.Center" Spacing="1">
+                                @if (isloading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Color="Color.Inherit" />
+                                    <MudText>Signing up...</MudText>
+                                }
+                                else
+                                {
+                                    <MudText>Sign Up</MudText>
+                                }
+                            </MudStack>
+                        </MudButton>
+
+                        <MudText Class="mt-2" Typo="Typo.caption">
+                            Already have an account?
+                            <MudLink Href="#" OnClick="@ShowLogin">Sign In</MudLink>
+                        </MudText>
+
+                       
+                    </MudStack>
+                </MudForm>
             }
         </MudStack>
     </MudPaper>
-
 </MudStack>
+
+@code {
+    private MudForm signInForm;
+    private MudForm CreateAccountForm;
+    private MudTextField<string> pwField1;
+    private string _signUpName;
+
+    private string _email;
+    private string _password;
+    private bool _showSignUp;
+
+    private string _signUpEmail;
+    private string _signUpPassword;
+    private string _signUpConfirmPassword;
+    private bool isloading = false;
+
+    private IEnumerable<string> PasswordStrength(string pw)
+    {
+        if (string.IsNullOrWhiteSpace(pw))
+        {
+            yield return "Password is required!";
+            yield break;
+        }
+
+        if (pw.Length < 8)
+            yield return "Password must be at least 8 characters long.";
+
+        if (!Regex.IsMatch(pw, "[A-Z]"))
+            yield return "Password must contain at least one capital letter.";
+
+        if (!Regex.IsMatch(pw, "[a-z]"))
+            yield return "Password must contain at least one lowercase letter.";
+
+        if (!Regex.IsMatch(pw, "[0-9]"))
+            yield return "Password must contain at least one digit.";
+    }
+    private IEnumerable<string> NameValidation(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            yield return "Name is required.";
+        else if (name.Length < 2)
+            yield return "Name must be at least 2 characters long.";
+    }
+
+    private string PasswordMatch(string arg)
+    {
+        if (pwField1.Value != arg)
+            return "Passwords do not match.";
+        return null;
+    }
+
+    private async Task ShowSignUp(MouseEventArgs args)
+    {
+        _showSignUp = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ShowLogin(MouseEventArgs args)
+    {
+        _showSignUp = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnSignInClicked()
+    {
+
+        await signInForm.Validate();
+        if (!signInForm.IsValid)
+            return;
+
+        isloading = true;
+        StateHasChanged();
+        var responce = await FireTalkService.LoginAsync(_email, HashPassword(_password));
+        if(responce!=null)
+        {
+            Preferences.Set("userInfo", JsonConvert.SerializeObject(responce));
+            Navigation.NavigateTo("Home", true);
+            // await DialogService.ShowMessageBox("Login Successful", "You have successfully logged in.", "OK");
+        }
+        else
+        {
+            DialogService.ShowMessageBox("Login Failed", "Invalid email or password.", "OK");
+        }
+        isloading = false;
+        StateHasChanged();
+    }
+
+    private async Task OnSignUpClicked()
+    {
+
+        await CreateAccountForm.Validate();
+        if (!CreateAccountForm.IsValid)
+            return;
+        isloading = true;
+        StateHasChanged();
+
+
+        var userModel= new UserModel
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = _signUpName,
+                Email = _signUpEmail,
+                Password = HashPassword(_signUpPassword),
+                CreatedAt = DateTime.UtcNow.ToString("O")
+            };
+
+        bool isRecordSaved=await FireTalkService.SaveUserDataAsync(userModel);
+
+       
+        if (isRecordSaved)
+        {
+            _showSignUp = false;
+            await CreateAccountForm.ResetAsync();
+            DialogService.ShowMessageBox("Account Created", "Account created successfully! You can now log in.", "OK");
+        }
+        else
+        {
+            DialogService.ShowMessageBox("Account Exist", "An account with this email already exists.", "OK");
+        }   
+        isloading = false;
+        StateHasChanged();
+    }
+    private string HashPassword(string password)
+    {
+       using var sha=System.Security.Cryptography.SHA256.Create();
+         var bytes=System.Text.Encoding.UTF8.GetBytes(password);
+        var hash=sha.ComputeHash(bytes);
+        return Convert.ToBase64String(hash);
+    }
+}
