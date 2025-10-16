@@ -9,38 +9,37 @@
 @inject IJSRuntime JSRuntime
 
 <script>
-    window.ScrollHandler={
-        _handler:null,
-
-            initializeScrollListener:function(dotNetObject){
-                const container=document.getElementById('chatContainer');
-                if(container)
-                {
-                    this._handler=()=>{
-                        if(container.scrollTop<=50){
-                            dotNetObject.invokeMethodAsync('OnScrollToTop')
-                        }
-                    };
-                    container.addEventListener('scroll',this._handler);
-                }
-            },
-            scrollToBottom:function(){
-                const container =document.getElementById('chatContainer');
-                if(container){
-                            container.scrollTop=container.scrollHeight;
-                }
-            },
-            disposeScrollListener:function(){
-                  const container =document.getElementById('chatContainer');
-                  if(container&&this._handler){
-                      container.removeEventListener('scroll',this._handler);
-                  }
+    window.ScrollHandler = {
+        _handler: null,
+        initializeScrollListener: function(dotNetObject) {
+            const container = document.getElementById('chatContainer');
+            if (container) {
+                this._handler = () => {
+                    if(container.scrollTop <= 50){
+                        dotNetObject.invokeMethodAsync('OnScrollToTop')
+                    }
+                };
+                container.addEventListener('scroll', this._handler);
             }
+        },
+        scrollToBottom: function() {
+            const container = document.getElementById('chatContainer');
+            if(container){
+                container.scrollTop = container.scrollHeight;
+            }
+        },
+        disposeScrollListener: function() {
+            const container = document.getElementById('chatContainer');
+            if(container && this._handler){
+                container.removeEventListener('scroll', this._handler);
+            }
+        }
     };
 </script>
+
 <div style="height:85vh">
     <MudStack id="chatContainer" Style="height:100%;overflow-y:auto;flex-direction:column-reverse">
-        @if (isLoading||_isLoadingMoreMessage)
+        @if (isLoading || _isLoadingMoreMessage)
         {
             <div style="height:100vh; display:flex; justify-content:center; align-items:center;">
                 <MudStack Spacing="0" AlignItems="AlignItems.Center">
@@ -48,25 +47,42 @@
                     <MudText Typo="Typo.body2">Loading...</MudText>
                 </MudStack>
             </div>
-
         }
+
         @foreach (var chat in chats.OrderBy(f => f.CreatedAt))
         {
-            <MudChat ChatPosition="@(chat.IsSender == true ? ChatBubblePosition.End : ChatBubblePosition.Start)">
+            <MudChat ChatPosition="@(chat.OwnerId == MainLayout._userInfo.Id ? ChatBubblePosition.End : ChatBubblePosition.Start)">
                 <MudChatBubble>
                     <MudAvatar Style="@($"background-color:{chat.OwnerBackGroundColor}")" Size="Size.Small">
                         @GetUserInitials(chat.OwnerName)
                     </MudAvatar>
                     <MudText Typo="Typo.body1">@chat.Text</MudText>
-                    <MudText Typo="Typo.caption" Align="Align.Right">@GetWeekDateInfo(chat.CreatedAt.ToDateTime())</MudText>
+                    <MudText Typo="Typo.caption" Align="Align.Right">
+                        @GetWeekDateInfo(chat.CreatedAt.ToDateTime())
+                        @if (chat.OwnerId == MainLayout._userInfo.Id)
+                        {
+                            @if (chat.ReadBy.Count == 0)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Color="Color.Primary" />
+                            }
+                            else
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.DoneAll" Size="Size.Small" Color="Color.Info" />
+                            }
+                        }
+                    </MudText>
                 </MudChatBubble>
             </MudChat>
         }
 
+        @if (!string.IsNullOrEmpty(_typingUserName))
+        {
+            <MudText Typo="Typo.caption" Class="ml-2">@_typingUserName is typing...</MudText>
+        }
     </MudStack>
 
     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
-        <MudTextField Variant="Variant.Outlined" @bind-value="_messageText" AutoGrow="true" FullWidth="true"></MudTextField>
+        <MudTextField Variant="Variant.Outlined" @bind-value="_messageText" AutoGrow="true" FullWidth="true" OnInput="OnMessageInput"></MudTextField>
         <MudIconButton Color="Color.Primary" Variant="Variant.Filled" OnClick="@OnCreateMessage" Icon="@Icons.Material.Filled.Send" />
     </MudStack>
 </div>
@@ -84,10 +100,11 @@
     private DotNetObjectReference<MessagePage>? _dotNetRef;
     private bool _isLoadingMoreMessage = false;
     private Dictionary<string, string> _userColorInfo = new();
+    private string _typingUserName;
 
     protected async override Task OnAfterRenderAsync(bool firstRender)
     {
-        if(firstRender)
+        if (firstRender)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await JSRuntime.InvokeVoidAsync("ScrollHandler.initializeScrollListener", _dotNetRef);
@@ -101,56 +118,86 @@
         {
             _groupDetails = (MessageGroupModel)appState.CurrentData;
             await GetUserDetails();
-
         }
         await LoadMessage();
+        await MarkMessagesAsSeen(); // Mark unseen messages as seen on load
         SubscribeToMessageListener();
+        SubscribeToTypingListener();
     }
 
-    private  string GenerateRandomColor(string userId)
+    private string GenerateRandomColor(string userId)
     {
-        if(_userColorInfo.ContainsKey(userId))
-        {
-            return _userColorInfo[userId];
-        }
+        if (_userColorInfo.ContainsKey(userId)) return _userColorInfo[userId];
         var random = new Random(userId.GetHashCode());
         var color = String.Format("#{0:X6}", random.Next(0x1000000));
-        _userColorInfo[userId]=color;
+        _userColorInfo[userId] = color;
         return color;
     }
+
     private void SubscribeToMessageListener()
     {
         _listener = firestoreDb.Collection("chats")
-        .WhereEqualTo("GroupId", _groupDetails.Id)
-        .WhereGreaterThanOrEqualTo("CreatedAt", Timestamp.FromDateTime(DateTime.UtcNow))
-        .LimitToLast(_pagesize)
-        .OrderBy("CreatedAt")
-        .Listen(async snapshot =>
-        {
-            if (snapshot.Changes.Count > 0)
+            .WhereEqualTo("GroupId", _groupDetails.Id)
+            .WhereGreaterThanOrEqualTo("CreatedAt", Timestamp.FromDateTime(DateTime.UtcNow))
+            .LimitToLast(_pagesize)
+            .OrderBy("CreatedAt")
+            .Listen(async snapshot =>
             {
-                foreach (var change in snapshot.Changes)
+                if (snapshot.Changes.Count > 0)
                 {
-                    if (change.ChangeType == DocumentChange.Type.Added)
+                    foreach (var change in snapshot.Changes)
                     {
-                        var newChat = change.Document.ConvertTo<ChatModel>();
-
-                        if (chats.Any(f => f.Id == newChat.Id))
-                            return;
-                        var userInfo = _userDetails.FirstOrDefault(u => u.Id == newChat.OwnerId);
-                        if (userInfo != null)
+                        if (change.ChangeType == DocumentChange.Type.Added)
                         {
-                            newChat.OwnerName = userInfo.Name;
-                            newChat.OwnerBackGroundColor = GenerateRandomColor(userInfo.Id);
+                            var newChat = change.Document.ConvertTo<ChatModel>();
+                            if (chats.Any(f => f.Id == newChat.Id)) continue;
+
+                            var userInfo = _userDetails.FirstOrDefault(u => u.Id == newChat.OwnerId);
+                            if (userInfo != null)
+                            {
+                                newChat.OwnerName = userInfo.Name;
+                                newChat.OwnerBackGroundColor = GenerateRandomColor(userInfo.Id);
+                            }
+
+                            chats.Add(newChat);
+                            await InvokeAsync(StateHasChanged);
+                            await JSRuntime.InvokeVoidAsync("ScrollHandler.scrollToBottom");
+
+                            // Mark as seen if received message
+                            if (newChat.OwnerId != MainLayout._userInfo.Id && !newChat.ReadBy.Contains(MainLayout._userInfo.Id))
+                            {
+                                await MarkMessageAsSeen(newChat);
+                            }
                         }
-                        // newChat.IsSender = newChat.OwnerId == MainLayout._userInfo.Id;
-                        chats.Add(newChat);
-                        await InvokeAsync(StateHasChanged);
-                        await JSRuntime.InvokeVoidAsync("ScrollHandler.scrollToBottom");
                     }
                 }
-            }
-        });
+            });
+    }
+
+    private void SubscribeToTypingListener()
+    {
+        firestoreDb.Collection("typing")
+            .WhereEqualTo("GroupId", _groupDetails.Id)
+            .Listen(snapshot =>
+            {
+                foreach (var doc in snapshot.Documents)
+                {
+                    var data = doc.ToDictionary();
+                    bool isTyping = data.ContainsKey("IsTyping") && (bool)data["IsTyping"];
+                    string userId = data["UserId"].ToString();
+                    if (userId != MainLayout._userInfo.Id)
+                    {
+                        _typingUserName = isTyping ? _userDetails.FirstOrDefault(u => u.Id == userId)?.Name ?? "" : "";
+                        InvokeAsync(StateHasChanged);
+                    }
+                }
+            });
+    }
+
+    private async Task OnMessageInput(ChangeEventArgs e)
+    {
+        _messageText = e.Value?.ToString();
+        await FireTalkService.NotifyTyping(_groupDetails.Id, MainLayout._userInfo.Id, !string.IsNullOrWhiteSpace(_messageText));
     }
 
     public async ValueTask DisposeAsync()
@@ -165,7 +212,7 @@
         var userDetails = await FireTalkService.GetUserDetailsByIds(_groupDetails.Member);
         if (userDetails?.Count > 0)
         {
-            foreach(var user in userDetails)
+            foreach (var user in userDetails)
             {
                 GenerateRandomColor(user.Id);
             }
@@ -178,24 +225,18 @@
         if (!string.IsNullOrWhiteSpace(name))
         {
             var names = name.Split(' ');
-            if (names.Length >= 2)
-            {
-                return $"{names[0][0]}{names[1][0]}".ToUpper();
-            }
-            else if (name.Length == 1)
-            {
-                return $"{names[0][0]}".ToUpper();
-            }
+            if (names.Length >= 2) return $"{names[0][0]}{names[1][0]}".ToUpper();
+            return $"{names[0][0]}".ToUpper();
         }
         return string.Empty;
     }
 
     private async Task OnCreateMessage()
     {
-        if (string.IsNullOrWhiteSpace(_messageText))
-            return;
+        if (string.IsNullOrWhiteSpace(_messageText)) return;
         if (isSending) return;
         isSending = true;
+
         var newMessage = new ChatModel
         {
             Id = Guid.NewGuid().ToString(),
@@ -203,53 +244,54 @@
             OwnerId = MainLayout._userInfo.Id,
             OwnerName = MainLayout._userInfo.Name,
             Text = _messageText,
-            CreatedAt = Timestamp.FromDateTime(DateTime.UtcNow)
+            CreatedAt = Timestamp.FromDateTime(DateTime.UtcNow),
+            ReadBy = new List<string> { MainLayout._userInfo.Id }
         };
-        chats.Add(newMessage);
 
+        chats.Add(newMessage);
         await FireTalkService.CreateChatMessage(newMessage);
+
         _messageText = string.Empty;
         isSending = false;
+
+        await FireTalkService.NotifyTyping(_groupDetails.Id, MainLayout._userInfo.Id, false);
         await JSRuntime.InvokeVoidAsync("ScrollHandler.scrollToBottom");
     }
+
     [JSInvokable]
-    public async Task OnScrollToTop()
-    {
-        await  LoadMoreMessage();
-    }
+    public async Task OnScrollToTop() => await LoadMoreMessage();
+
     private async Task LoadMoreMessage()
     {
         if (chats.Count == 0) return;
-        var lastMessage=chats.OrderBy(f=>f.CreatedAt).FirstOrDefault();
-
+        var lastMessage = chats.OrderBy(f => f.CreatedAt).FirstOrDefault();
         if (_isLoadingMoreMessage) return;
         _isLoadingMoreMessage = true;
         StateHasChanged();
 
         var chatQuery = firestoreDb.Collection("chats")
-        .WhereEqualTo("GroupId", _groupDetails.Id)
-        .OrderByDescending("CreatedAt")
-        .StartAfter(lastMessage.CreatedAt)
-        .Limit(_pagesize);
+            .WhereEqualTo("GroupId", _groupDetails.Id)
+            .OrderByDescending("CreatedAt")
+            .StartAfter(lastMessage.CreatedAt)
+            .Limit(_pagesize);
 
         var snapshot = await chatQuery.GetSnapshotAsync();
         var newMessage = new List<ChatModel>();
-        foreach(var document in snapshot.Documents)
+        foreach (var document in snapshot.Documents)
         {
             var chat = document.ConvertTo<ChatModel>();
-            if(chats.Any(f=>f.Id==chat.Id))
-            {
-                continue;
-            }
+            if (chats.Any(f => f.Id == chat.Id)) continue;
+
             var userInfo = _userDetails.FirstOrDefault(u => u.Id == chat.OwnerId);
-            if(userInfo!=null)
+            if (userInfo != null)
             {
                 chat.OwnerName = userInfo.Name;
                 chat.OwnerBackGroundColor = GenerateRandomColor(userInfo.Id);
             }
             newMessage.Add(chat);
-        };
-        if(newMessage.Count>0)
+        }
+
+        if (newMessage.Count > 0)
         {
             chats.InsertRange(0, newMessage.OrderBy(d => d.CreatedAt));
             StateHasChanged();
@@ -257,6 +299,7 @@
         _isLoadingMoreMessage = false;
         StateHasChanged();
     }
+
     private async Task LoadMessage()
     {
         isLoading = true;
@@ -273,35 +316,43 @@
                     message.OwnerName = userInfo.Name;
                     message.OwnerBackGroundColor = GenerateRandomColor(userInfo.Id);
                 }
-                ;
             }
             chats = messages;
         }
+
         isLoading = false;
         StateHasChanged();
-        
     }
+
+    private async Task MarkMessagesAsSeen()
+    {
+        foreach (var chat in chats.ToList())
+        {
+            if (chat.OwnerId != MainLayout._userInfo.Id && !chat.ReadBy.Contains(MainLayout._userInfo.Id))
+            {
+                await MarkMessageAsSeen(chat);
+            }
+        }
+    }
+
+    private async Task MarkMessageAsSeen(ChatModel chat)
+    {
+        chat.ReadBy.Add(MainLayout._userInfo.Id);
+        var docRef = firestoreDb.Collection("chats").Document(chat.Id);
+        await docRef.UpdateAsync(new Dictionary<string, object> { { "ReadBy", chat.ReadBy } });
+        StateHasChanged();
+    }
+
     public static string GetWeekDateInfo(DateTime messageDateTime)
     {
         var localTime = messageDateTime.ToLocalTime();
-        string returnDate = localTime.ToString("dd MMM yyyy");
-        if (localTime.Date == DateTime.Now.Date)
-        {
-            returnDate = "Today";
-        }
-        else if (localTime.Date == DateTime.Now.AddDays(-1))
-        {
-            returnDate = "yesterday";
-        }
-        else if (
-            localTime.Date == DateTime.Now.AddDays(-2) ||
-            localTime.Date == DateTime.Now.AddDays(-3) ||
-            localTime.Date == DateTime.Now.AddDays(-4) ||
-            localTime.Date == DateTime.Now.AddDays(-5) ||
-            localTime.Date == DateTime.Now.AddDays(-6))
-        {
-            returnDate = localTime.ToString("dddd");
-        }
-        return returnDate;
+        var now = DateTime.Now;
+
+        if (localTime.Date == now.Date)
+            return localTime.ToString("hh:mm tt"); // Today
+        else if (localTime.Date == now.AddDays(-1).Date)
+            return $"Yesterday {localTime:hh:mm tt}";
+        else
+            return localTime.ToString("dd MMM yyyy hh:mm tt"); // Older
     }
 }

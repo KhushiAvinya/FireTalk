@@ -2,19 +2,20 @@
 @using FireTalk.Components.Layout
 @using FireTalk.Models
 @using FireTalk.Services
+@using Google.Cloud.Firestore
 @using MudBlazor
 @inject IDialogService DialogService
 @inject IFireTalkService fireTalkService
+@inject FireStoreService fireStoreService
 @inject NavigationManager navigationManager
 @inject AppState appState
-
 
 <div style="position:fixed;bottom:24px;right:24px;z-index:9999">
     <MudFab StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" OnClick="@OnCreateMessage" />
 </div>
 
 <MudStack>
-    @if(isLoading)
+    @if (isLoading)
     {
         <div style="height:100vh; display:flex; justify-content:center; align-items:center;">
             <MudStack Spacing="0" AlignItems="AlignItems.Center">
@@ -22,81 +23,142 @@
                 <MudText Typo="Typo.body2">Loading...</MudText>
             </MudStack>
         </div>
-
     }
-    @foreach(var group in _groups)
+
+    @foreach (var group in _groups.OrderByDescending(g => g.LastSentTime))
     {
-        <MudCard onclick="@(()=>OnMessageGroupClick(group))">
+        <MudCard onclick="@(() => OnMessageGroupClick(group))">
             <MudCardContent>
                 <MudStack Row="true" AlignItems="AlignItems.End">
                     <MudStack>
                         <MudText Typo="Typo.h6">@group.Title</MudText>
                         <MudText Typo="Typo.body2">@group.LastSentMessage</MudText>
                     </MudStack>
-                    <MudSpacer/>
+                    <MudSpacer />
                     <MudText Typo="Typo.body2">@GetWeekDateInfo(group.LastSentTime.ToDateTime())</MudText>
                 </MudStack>
-               
+
             </MudCardContent>
         </MudCard>
     }
 
 </MudStack>
-@code{
+
+@code {
     private List<MessageGroupModel> _groups = new();
     private bool isLoading = false;
+    private bool _isDialogOpen = false;
+    private List<FirestoreChangeListener> _groupListeners = new();
 
     protected override async Task OnInitializedAsync()
     {
         await GetUserGroups();
+        SubscribeToGroupUpdates();
     }
+
     private async Task GetUserGroups()
     {
         isLoading = true;
         StateHasChanged();
-        var groups =await fireTalkService.GetUserGroups(MainLayout._userInfo.Id);
-        if(groups?.Count >0)
+
+        var groups = await fireTalkService.GetUserGroups(MainLayout._userInfo.Id);
+
+        if (groups?.Count > 0)
         {
+            // Initialize unread count
+            foreach (var g in groups)
+            {
+                g.UnreadCount = 0;
+            }
             _groups = groups;
         }
+
         isLoading = false;
         StateHasChanged();
     }
+
+    private void SubscribeToGroupUpdates()
+    {
+        foreach (var group in _groups)
+        {
+            var listener = fireStoreService.Db.Collection("chats")
+                .WhereEqualTo("GroupId", group.Id)
+                .OrderByDescending("CreatedAt")
+                .Limit(1)
+                .Listen(snapshot =>
+                {
+                    foreach (var doc in snapshot.Documents)
+                    {
+                        var chat = doc.ConvertTo<ChatModel>();
+                        var existingGroup = _groups.FirstOrDefault(g => g.Id == group.Id);
+                        if (existingGroup != null)
+                        {
+                            existingGroup.LastSentMessage = chat.Text;
+                            existingGroup.LastSentTime = chat.CreatedAt;
+
+                            if (chat.OwnerId != MainLayout._userInfo.Id)
+                                existingGroup.UnreadCount += 1;
+
+                            InvokeAsync(StateHasChanged);
+                        }
+                    }
+                });
+
+            _groupListeners.Add(listener);
+        }
+    }
+
     public static string GetWeekDateInfo(DateTime messageDateTime)
     {
         var localTime = messageDateTime.ToLocalTime();
-        string returnDate = localTime.ToString("dd MMM yyyy");
-        if(localTime.Date==DateTime.Now.Date)
-        {
-            returnDate = "Today";
-        }
-        else if(localTime.Date==DateTime.Now.AddDays(-1))
-        {
-            returnDate = "yesterday";
-        }
-        else if (
-            localTime.Date == DateTime.Now.AddDays(-2)||
-            localTime.Date == DateTime.Now.AddDays(-3)||
-            localTime.Date == DateTime.Now.AddDays(-4)||
-            localTime.Date == DateTime.Now.AddDays(-5)||
-            localTime.Date == DateTime.Now.AddDays(-6))
-        {
-            returnDate = localTime.ToString("dddd");
-        }
-        return returnDate;
+        var now = DateTime.Now;
+
+        if (localTime.Date == now.Date)
+            return localTime.ToString("hh:mm tt"); // Today
+        else if (localTime.Date == now.AddDays(-1).Date)
+            return $"Yesterday {localTime:hh:mm tt}";
+        else
+            return localTime.ToString("dd MMM yyyy hh:mm tt"); // Older
     }
+
     void OnMessageGroupClick(MessageGroupModel group)
     {
+        Console.WriteLine($"Clicked {group.Title}");
+        group.UnreadCount = 0;
         appState.CurrentData = group;
         navigationManager.NavigateTo("/MessagePage");
     }
+
+
     async Task OnCreateMessage()
     {
-        var options=new DialogOptions()
-        { 
-            FullScreen = true,
-            NoHeader=true
-        };
-        await DialogService.ShowAsync<CreateMessageGroup>(title:"",options:options);
+        if (_isDialogOpen) return;
+        _isDialogOpen = true;
+
+        var options = new DialogOptions { FullScreen = true, NoHeader = true };
+        var dialog = DialogService.Show<CreateMessageGroup>("", options);
+        var result = await dialog.Result;
+
+        _isDialogOpen = false;
+
+        if (result.Canceled == false && result.Data is string newGroupId)
+        {
+            var newGroup = await fireTalkService.GetGroupById(newGroupId);
+            if (newGroup != null)
+            {
+                newGroup.UnreadCount = 0;
+                _groups.Insert(0, newGroup);
+                StateHasChanged();
+            }
+        }
+    }
+
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var listener in _groupListeners)
+        {
+            await listener.StopAsync();
+        }
     }
 }

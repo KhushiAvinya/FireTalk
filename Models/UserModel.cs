@@ -20,6 +20,8 @@ namespace FireTalk.Models
 
         [FirestoreProperty]
         public string CreatedAt { get; set; }  
+        [FirestoreProperty]
+public string? ProfilePictureUrl { get; set; }
 
         
     }

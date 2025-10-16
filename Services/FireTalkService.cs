@@ -1,5 +1,6 @@
 ﻿using FireTalk.Models;
 using Google.Cloud.Firestore;
+using Google.Cloud.Firestore.V1;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -80,12 +81,12 @@ namespace FireTalk.Services
         public async Task<List<MessageGroupModel>> GetUserGroups(string userId)
         {
             var docRef = _firestoreDb.Collection("groups");
-            var query=docRef.WhereArrayContains("Member",userId);
+            var query = docRef.WhereArrayContains("Member", userId);
             var snapshots = await query.GetSnapshotAsync();
             return snapshots.Documents.Select(d => d.ConvertTo<MessageGroupModel>()).ToList();
-            
+
         }
-        public async Task<List<ChatModel>> GetUsersChats(string groupId,int pagesize)
+        public async Task<List<ChatModel>> GetUsersChats(string groupId, int pagesize)
         {
             var docRef = _firestoreDb.Collection("chats");
             var query = docRef.WhereEqualTo("GroupId", groupId)
@@ -94,12 +95,91 @@ namespace FireTalk.Services
             var snapshots = await query.GetSnapshotAsync();
             return snapshots.Documents.Select(d => d.ConvertTo<ChatModel>()).ToList();
         }
-        public async Task<List<UserModel>>GetUserDetailsByIds(List<string>userIds)
+        public async Task<List<UserModel>> GetUserDetailsByIds(List<string> userIds)
         {
             var userRef = _firestoreDb.Collection("users");
             var query = userRef.WhereIn("Id", userIds);
             var snapshot = await query.GetSnapshotAsync();
             return snapshot.Documents.Select(d => d.ConvertTo<UserModel>()).ToList();
         }
+        public async Task<UserModel?> GetUserByIdAsync(string userId)
+        {
+            var docRef = _firestoreDb.Collection("users").Document(userId);
+            var snapshot = await docRef.GetSnapshotAsync();
+
+            if (snapshot.Exists)
+                return snapshot.ConvertTo<UserModel>();
+
+            return null; // User not found
+        }
+
+        public async Task<bool> UpdateUserAsync(UserModel user)
+        {
+            var docRef = _firestoreDb.Collection("users").Document(user.Id);
+            await docRef.SetAsync(user, SetOptions.Overwrite);
+            return true;
+        }
+        public async Task NotifyTyping(string groupId, string userId, bool isTyping)
+        {
+            var doc = _firestoreDb.Collection("typing").Document($"{groupId}_{userId}");
+            await doc.SetAsync(new { GroupId = groupId, UserId = userId, IsTyping = isTyping, UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow) });
+        }
+        public async Task<MessageGroupModel> GetGroupById(string groupId)
+{
+    var doc = await _firestoreDb.Collection("messageGroups").Document(groupId).GetSnapshotAsync();
+    if (doc.Exists)
+    {
+        return doc.ConvertTo<MessageGroupModel>();
+    }
+    return null;
+}
+
+
+        //public void ListenToUserGroups(string userId, Action<MessageGroupModel> onGroupUpdated)
+        //{
+        //    var groupsRef = _firestoreDb.Collection("groups")
+        //                        .WhereArrayContains("Members", userId);
+
+        //    groupsRef.Listen(snapshot =>
+        //    {
+        //        foreach (var change in snapshot.Changes)
+        //        {
+        //            if (change.ChangeType == DocumentChange.Type.Modified ||
+        //                change.ChangeType == DocumentChange.Type.Added)
+        //            {
+        //                var group = change.Document.ConvertTo<MessageGroupModel>();
+        //                group.Id = change.Document.Id;
+        //                onGroupUpdated?.Invoke(group);
+        //            }
+        //        }
+        //    });
+        //}
+
+        //public async Task MarkGroupAsRead(string userId, string groupId)
+        //{
+        //    var userReadRef = _firestoreDb
+        //        .Collection("groups")
+        //        .Document(groupId)
+        //        .Collection("ReadStatus")
+        //        .Document(userId);
+
+        //    await userReadRef.SetAsync(new { LastReadTime = Timestamp.GetCurrentTimestamp() }, SetOptions.MergeAll);
+        //}
+
+        //public async Task<DateTime?> GetLastReadTime(string userId, string groupId)
+        //{
+        //    var docRef = _firestoreDb
+        //        .Collection("groups")
+        //        .Document(groupId)
+        //        .Collection("ReadStatus")
+        //        .Document(userId);
+
+        //    var snapshot = await docRef.GetSnapshotAsync();
+        //    if (snapshot.Exists && snapshot.TryGetValue("LastReadTime", out Timestamp ts))
+        //    {
+        //        return ts.ToDateTime();
+        //    }
+        //    return null;
+        //}
     }
 }

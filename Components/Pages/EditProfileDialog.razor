@@ -1,0 +1,161 @@
+﻿@using FireTalk.Models
+@using FireTalk.Services
+@using MudBlazor
+@using MudBlazor.Services
+@using Newtonsoft.Json
+@inject IJSRuntime JSRuntime
+@inject IDialogService DialogService
+@inject IFireTalkService FireTalkService
+
+<MudDialogContent>
+    <MudPaper Class="p-4" Style="width:100%; max-width:400px; margin:auto;">
+        <div style="max-height:60vh; overflow-y:auto; padding-right:4px;">
+            <MudStack Spacing="3" AlignItems="AlignItems.Center">
+
+
+                <MudAvatar Size="Size.Large" Src="@editProfilePicture" Color="Color.Primary">
+                    @GetInitials(editName)
+                </MudAvatar>
+
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.UploadFile"
+                           OnClick="TriggerFileInput"
+                           Class="rounded-pill px-4 py-2">
+                    Upload Image
+                </MudButton>
+
+                <InputFile id="fileInput" OnChange="OnFileSelected" style="display:none" accept="image/*" />
+
+                @if (!string.IsNullOrEmpty(editProfilePicture))
+                {
+                    <MudText Typo="Typo.caption" Align="Align.Center">Image selected ✅</MudText>
+                }
+
+                <MudTextField Label="Name" @bind-Value="editName" FullWidth="true"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person" />
+                <MudTextField Label="Email" @bind-Value="editEmail" FullWidth="true"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Email" />
+                <MudTextField Label="Current Password" InputType="InputType.Password" FullWidth="true"
+                              @bind-Value="currentPassword" />
+                <MudTextField Label="New Password" InputType="InputType.Password" FullWidth="true"
+                              @bind-Value="newPassword" />
+                <MudTextField Label="Confirm New Password" InputType="InputType.Password" FullWidth="true"
+                              @bind-Value="confirmPassword" />
+            </MudStack>
+        </div>
+    </MudPaper>
+</MudDialogContent>
+
+<MudDialogActions Class="justify-center px-4 py-3">
+    <MudButton Variant="Variant.Outlined" Color="Color.Secondary"
+               StartIcon="@Icons.Material.Filled.Close"
+               OnClick="Cancel" Class="rounded-pill px-4 py-2">
+        Cancel
+    </MudButton>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Check"
+               OnClick="Save" Class="rounded-pill px-4 py-2 ml-2 elevation-1">
+        Save
+    </MudButton>
+</MudDialogActions>
+
+
+@code {
+    [Parameter] public UserModel User { get; set; } = new UserModel();
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public EventCallback<UserModel> OnProfileUpdated { get; set; }
+
+    private string editName = "";
+    private string editEmail = "";
+    private string? editProfilePicture;
+    private string currentPassword = "";
+    private string newPassword = "";
+    private string confirmPassword = "";
+
+    private ElementReference fileInput;
+
+    protected override void OnInitialized()
+    {
+        editName = User.Name;
+        editEmail = User.Email;
+        editProfilePicture = User.ProfilePictureUrl;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task Save()
+    {
+        if (!string.IsNullOrEmpty(newPassword))
+        {
+            var currentHash = HashPassword(currentPassword);
+            if (currentHash != User.Password)
+            {
+                await DialogService.ShowMessageBox("Error", "Current password is incorrect.", "OK");
+                return;
+            }
+
+            if (newPassword != confirmPassword)
+            {
+                await DialogService.ShowMessageBox("Error", "New passwords do not match.", "OK");
+                return;
+            }
+
+            User.Password = HashPassword(newPassword);
+        }
+        User.Name = editName;
+        User.Email = editEmail;
+        User.ProfilePictureUrl = editProfilePicture;
+
+        Preferences.Set("userInfo", JsonConvert.SerializeObject(User));
+
+        await FireTalkService.UpdateUserAsync(User);
+
+        await OnProfileUpdated.InvokeAsync(User);
+
+        await DialogService.ShowMessageBox("Success", "Profile updated successfully!", "OK");
+
+        MudDialog.Close(DialogResult.Ok(User));
+    }
+
+    private async Task TriggerFileInput()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('fileInput').click();");
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file != null)
+        {
+            var buffer = new byte[file.Size];
+            await file.OpenReadStream().ReadAsync(buffer);
+            editProfilePicture = $"data:{file.ContentType};base64,{Convert.ToBase64String(buffer)}";
+            StateHasChanged();
+        }
+    }
+
+    private string GetInitials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "U";
+
+        var parts = name
+            .Trim()
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToArray();
+
+        if (parts.Length == 0)
+            return "U";
+
+        return string.Concat(parts.Select(p => char.ToUpperInvariant(p[0])));
+    }
+
+    private string HashPassword(string password)
+    {
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        var bytes = System.Text.Encoding.UTF8.GetBytes(password);
+        var hash = sha.ComputeHash(bytes);
+        return Convert.ToBase64String(hash);
+    }
+}

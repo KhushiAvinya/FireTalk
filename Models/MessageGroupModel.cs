@@ -16,7 +16,7 @@ namespace FireTalk.Models
         public string Title { get; set; }
         [FirestoreProperty]
         public string LastSentMessage { get; set; }
-         [FirestoreProperty]
+        [FirestoreProperty]
         public Timestamp LastSentTime { get; set; }
         [FirestoreProperty]
         public string OwnerId { get; set; }
@@ -24,5 +24,7 @@ namespace FireTalk.Models
         public Timestamp CreatedAt { get; set; }
         [FirestoreProperty]
         public List<string> Member { get; set; }
+        [FirestoreProperty] // optional if you want to sync with Firestore
+        public int UnreadCount { get; set; } = 0;
     }
 }

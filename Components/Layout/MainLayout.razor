@@ -5,7 +5,7 @@
 @inject IDialogService DialogService
 @inject NavigationManager NavigationManager
 @using FireTalk.Components.Dialog
-
+@inject AppState appState
 <MudThemeProvider />
 <MudDialogProvider />
    <MudPopoverProvider />
@@ -60,17 +60,26 @@
     private bool _drawerOpen = true;
 
     protected override void OnInitialized()
-    {
-        base.OnInitialized();
+{
+    base.OnInitialized();
 
-        // Load user info from Preferences
-        var userInfo = Preferences.Get("userInfo", string.Empty);
-        if (!string.IsNullOrEmpty(userInfo))
-        {
-            _userInfo = JsonConvert.DeserializeObject<UserModel>(userInfo);
-        }
+    // Load user info from Preferences if needed
+    var userInfo = Preferences.Get("userInfo", string.Empty);
+    if (!string.IsNullOrEmpty(userInfo))
+    {
+        _userInfo = JsonConvert.DeserializeObject<UserModel>(userInfo);
+        appState.CurrentUser = _userInfo;
     }
 
+    // Subscribe to changes
+    appState.NotifyUserChanged += OnUserUpdated;
+}
+
+private void OnUserUpdated(UserModel? updatedUser)
+{
+    _userInfo = updatedUser;
+    InvokeAsync(StateHasChanged); 
+}
     private string GetUserInitials()
     {
         if (!string.IsNullOrEmpty(_userInfo?.Name))

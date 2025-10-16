@@ -9,6 +9,10 @@
 @using Newtonsoft.Json
 @inject IFireTalkService FireTalkService
 @inject IDialogService DialogService
+@inject AppState appState
+@inject Blazored.LocalStorage.ILocalStorageService localStorage
+
+
 
 <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Style="height:80vh;">
     <MudPaper Elevation="3" Class="pa-5" Style="width:350px;border-radius:24px;">
@@ -191,6 +195,8 @@
         var responce = await FireTalkService.LoginAsync(_email, HashPassword(_password));
         if(responce!=null)
         {
+            appState.CurrentUser = responce;
+            await localStorage.SetItemAsync("currentUser", responce);
             Preferences.Set("userInfo", JsonConvert.SerializeObject(responce));
             Navigation.NavigateTo("Home", true);
             // await DialogService.ShowMessageBox("Login Successful", "You have successfully logged in.", "OK");

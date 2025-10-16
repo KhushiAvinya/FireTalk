@@ -1,4 +1,5 @@
-﻿using FireTalk.Models;
+﻿using Blazored.LocalStorage;
+using FireTalk.Models;
 using FireTalk.Services;
 using Microsoft.Extensions.Logging;
 using MudBlazor.Services;
@@ -22,6 +23,8 @@ namespace FireTalk
             builder.Services.AddSingleton<FireStoreService>();
             builder.Services.AddSingleton<IFireTalkService,FireTalkService>();
             builder.Services.AddSingleton<AppState>();
+            builder.Services.AddBlazoredLocalStorage();
+
             //builder.Services.AddSingleton(new HttpClient());
 
 #if DEBUG

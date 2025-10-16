@@ -22,8 +22,15 @@ namespace FireTalk.Models
         [FirestoreProperty]
         public string OwnerId { get; set; }
         public bool IsSender { get => OwnerId == MainLayout._userInfo.Id; }
+         [FirestoreProperty]
+        public List<string> ReadBy { get; set; } = new();
+        public List<string> DeliveredTo { get; set; } = new();
         public string OwnerName { get; set; }
         public string OwnerBackGroundColor{get; set;}
+        public bool IsSeen { get; set; }
+        public bool IsSent { get; set; }
+        public bool IsDelivered { get; set; }
+        //public string TimeAgo { get => CreatedAt.ToDateTime().ToLocalTime().ToString("hh:mm tt"); }
 
     }
 }
