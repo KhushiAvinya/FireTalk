@@ -9,6 +9,30 @@
 @inject FireStoreService fireStoreService
 @inject NavigationManager navigationManager
 @inject AppState appState
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+<style>
+    .group-card {
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
+        border-radius: 10px;
+    }
+
+        .group-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+    .truncate {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .font-semibold {
+        font-weight: 600;
+    }
+</style>
 
 <div style="position:fixed;bottom:24px;right:24px;z-index:9999">
     <MudFab StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" OnClick="@OnCreateMessage" />
@@ -25,22 +49,46 @@
         </div>
     }
 
-    @foreach (var group in _groups.OrderByDescending(g => g.LastSentTime))
-    {
-        <MudCard onclick="@(() => OnMessageGroupClick(group))">
-            <MudCardContent>
-                <MudStack Row="true" AlignItems="AlignItems.End">
-                    <MudStack>
-                        <MudText Typo="Typo.h6">@group.Title</MudText>
-                        <MudText Typo="Typo.body2">@group.LastSentMessage</MudText>
-                    </MudStack>
-                    <MudSpacer />
-                    <MudText Typo="Typo.body2">@GetWeekDateInfo(group.LastSentTime.ToDateTime())</MudText>
+   @foreach (var group in _groups.OrderByDescending(g => g.LastSentTime))
+{
+        <MudCard Class="my-2 group-card"
+                 @onclick="() => OnMessageGroupClick(group)">
+
+        <MudRipple /> 
+        <MudCardContent>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudAvatar Size="Size.Medium" Color="Color.Primary">
+                    @group.Title?.Substring(0, 1).ToUpper()
+                </MudAvatar>
+
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.subtitle1" Class="font-semibold">@group.Title</MudText>
+                    <MudText Typo="Typo.body2" Class="text-gray-600 truncate"
+                             Style="max-width: 220px;">
+                        @group.LastSentMessage
+                    </MudText>
                 </MudStack>
 
-            </MudCardContent>
-        </MudCard>
-    }
+                <MudSpacer />
+
+                <MudStack AlignItems="AlignItems.End" Spacing="0">
+                    <MudText Typo="Typo.caption" Class="text-gray-500">
+                        @GetWeekDateInfo(group.LastSentTime.ToDateTime())
+                    </MudText>
+
+                    @if (group.UnreadCount > 0)
+                    {
+                        <MudBadge Color="Color.Error"
+                                  Content="@group.UnreadCount"
+                                  Overlap="true"
+                                  Class="mt-1"
+                                  Style="font-size:12px;" />
+                    }
+                </MudStack>
+            </MudStack>
+        </MudCardContent>
+    </MudCard>
+}
 
 </MudStack>
 
@@ -65,11 +113,9 @@
 
         if (groups?.Count > 0)
         {
-            // Initialize unread count
             foreach (var g in groups)
-            {
                 g.UnreadCount = 0;
-            }
+
             _groups = groups;
         }
 
@@ -85,27 +131,55 @@
                 .WhereEqualTo("GroupId", group.Id)
                 .OrderByDescending("CreatedAt")
                 .Limit(1)
-                .Listen(snapshot =>
+                .Listen(async snapshot =>
                 {
                     foreach (var doc in snapshot.Documents)
                     {
                         var chat = doc.ConvertTo<ChatModel>();
                         var existingGroup = _groups.FirstOrDefault(g => g.Id == group.Id);
+
                         if (existingGroup != null)
                         {
+                            bool isNewMessageFromOtherUser = chat.OwnerId != MainLayout._userInfo.Id;
+
                             existingGroup.LastSentMessage = chat.Text;
                             existingGroup.LastSentTime = chat.CreatedAt;
 
-                            if (chat.OwnerId != MainLayout._userInfo.Id)
+                            if (isNewMessageFromOtherUser)
+                            {
                                 existingGroup.UnreadCount += 1;
 
-                            InvokeAsync(StateHasChanged);
+                                await InvokeAsync(async () =>
+                                {
+
+                                    Snackbar.Add(
+                                        $"{existingGroup.Title}: {chat.Text}",
+                                        Severity.Info,
+                                        config =>
+                                        {
+                                            config.ShowCloseIcon = true;
+                                            config.VisibleStateDuration = 4000;
+                                        });
+
+
+                                    await JS.InvokeVoidAsync("playNotificationSound");
+
+                                    await JS.InvokeVoidAsync("showBrowserNotification", existingGroup.Title, chat.Text);
+
+                                    StateHasChanged();
+                                });
+                            }
+
+
+                            await InvokeAsync(StateHasChanged);
                         }
                     }
                 });
 
             _groupListeners.Add(listener);
         }
+
+        _ = JS.InvokeVoidAsync("requestNotificationPermission");
     }
 
     public static string GetWeekDateInfo(DateTime messageDateTime)
@@ -114,21 +188,19 @@
         var now = DateTime.Now;
 
         if (localTime.Date == now.Date)
-            return localTime.ToString("hh:mm tt"); // Today
+            return localTime.ToString("hh:mm tt");
         else if (localTime.Date == now.AddDays(-1).Date)
             return $"Yesterday {localTime:hh:mm tt}";
         else
-            return localTime.ToString("dd MMM yyyy hh:mm tt"); // Older
+            return localTime.ToString("dd MMM yyyy hh:mm tt");
     }
 
     void OnMessageGroupClick(MessageGroupModel group)
     {
-        Console.WriteLine($"Clicked {group.Title}");
         group.UnreadCount = 0;
         appState.CurrentData = group;
         navigationManager.NavigateTo("/MessagePage");
     }
-
 
     async Task OnCreateMessage()
     {
@@ -153,7 +225,6 @@
         }
     }
 
-
     public async ValueTask DisposeAsync()
     {
         foreach (var listener in _groupListeners)
@@ -162,3 +233,26 @@
         }
     }
 }
+
+<script>
+    window.playNotificationSound = function () {
+        try {
+            const audio = new Audio('/sounds/notify.mp3'); 
+            audio.volume = 0.7;
+            audio.play().catch(err => console.warn('Playback blocked:', err));
+        } catch (e) {
+            console.error('Error playing sound:', e);
+        }
+    };
+
+    window.requestNotificationPermission = function () {
+        if ("Notification" in window)
+            Notification.requestPermission();
+    };
+
+    window.showBrowserNotification = function (title, body) {
+        if ("Notification" in window && Notification.permission === "granted") {
+            new Notification(title, { body });
+        }
+    };
+</script>

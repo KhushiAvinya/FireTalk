@@ -63,7 +63,6 @@
 {
     base.OnInitialized();
 
-    // Load user info from Preferences if needed
     var userInfo = Preferences.Get("userInfo", string.Empty);
     if (!string.IsNullOrEmpty(userInfo))
     {
@@ -71,7 +70,6 @@
         appState.CurrentUser = _userInfo;
     }
 
-    // Subscribe to changes
     appState.NotifyUserChanged += OnUserUpdated;
 }
 
